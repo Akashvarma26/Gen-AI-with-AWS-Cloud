@@ -1,3 +1,13 @@
+# Personal files/folders
+*.csv
+api_test.json
+Images_gen/
+data/
+vdb_index/
+
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
