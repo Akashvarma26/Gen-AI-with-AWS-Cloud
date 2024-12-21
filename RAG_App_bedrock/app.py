@@ -1,7 +1,5 @@
 # Importing libraries
-import os
 import json
-import sys
 import boto3
 import streamlit as st
 # Using Amazon Titan to generate embeddings using bedrock
@@ -13,6 +11,7 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from langchain.chains.retrieval_qa.base import RetrievalQA
+import base64
 
 # Initiating embedding model from AWS Bedrock using langchain
 bedrock=boto3.client(service_name="bedrock-runtime")
@@ -44,8 +43,8 @@ def get_Llama3_LLM():
     return llm
 
 # Prompt templates
-Prompt_Template="""
-Human: Use the following pieces of context to provide concise answers to the questions at the end. 
+Prompt_Template_rag="""
+Human: Use the following pieces of context to provide concise answers to the questions at the end.
 But use atleast 250 words to summarize when asked to summarize with detailed explanation.
 Do Not make up an answer if you do not know.
 
@@ -57,28 +56,53 @@ Question:{question}
 
 Assistant:"""
 
-prompt=PromptTemplate(
-    template=Prompt_Template, input_variables=["context","question"]
+prompt_rag=PromptTemplate(
+    template=Prompt_Template_rag, input_variables=["context","question"]
 )
 
 # Getting the response from llm
-def get_response_llm(llm,vdb,query):
+def get_response_llm_rag(llm,vdb,query):
     qa=RetrievalQA.from_chain_type(
         llm=llm,chain_type="stuff",
         retriever=vdb.as_retriever(
             search_type="similarity", search_kwargs={"k":4}
         ),
         return_source_documents=True,
-        chain_type_kwargs={"prompt":prompt}
+        chain_type_kwargs={"prompt":prompt_rag}
     )
     answer=qa({"query":query})
     return answer['result']
 
+# Generate image using Stable Diffusion
+def gen_image_from_llm(prompt_text):
+    prompt_template = [{"text": prompt_text, "weight": 1}]
+    payload = {
+        "text_prompts": prompt_template,
+        "cfg_scale": 15,
+        "seed": 0,
+        "steps": 50,
+        "width": 512,
+        "height": 512
+    }
+    body = json.dumps(payload)
+    model_id = "stability.stable-diffusion-xl-v1"
+    response = bedrock.invoke_model(
+        body=body,
+        modelId=model_id,
+        accept="application/json",
+        contentType="application/json",
+    )
+    response_body = json.loads(response.get("body").read())
+    artifact = response_body.get("artifacts")[0]
+    image_encoded = artifact.get("base64").encode("utf-8")
+    image_bytes = base64.b64decode(image_encoded)
+    return image_bytes
+
 
 # Streamlit App
 def main():
-    st.set_page_config("RAG_BEDROCK",page_icon="🔗")
-    st.header("Chat with In house pdfs")
+    st.set_page_config("RAG BEDROCK APP",page_icon="🔗")
+    st.header("Chat with In house pdfs or Generate Images")
     user_input=st.text_input("Ask anything!!!")
     with st.sidebar:
         st.title("Menu")
@@ -91,12 +115,17 @@ def main():
     if st.button("ClaudeAI Answer"):
         faiss_index=FAISS.load_local("vdb_index", embeddings=bedrock_embed,allow_dangerous_deserialization=True)
         llm=get_claudeAI_LLM()
-        st.success(get_response_llm(llm,faiss_index,query=user_input))
+        st.success(get_response_llm_rag(llm,faiss_index,query=user_input))
 
     if st.button("Llama3 Answer"):
         faiss_index=FAISS.load_local("vdb_index", embeddings=bedrock_embed,allow_dangerous_deserialization=True)
         llm=get_Llama3_LLM()
-        st.success(get_response_llm(llm,faiss_index,query=user_input))
+        st.success(get_response_llm_rag(llm,faiss_index,query=user_input))
+
+    if st.button("Stable Diffusion Answer"):
+        with st.spinner("Generating image..."):
+            image_output=gen_image_from_llm(user_input)
+            st.image(image_output, caption="Generated Image")
 
 if __name__=="__main__":
     main()
