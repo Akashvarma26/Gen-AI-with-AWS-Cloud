@@ -7,3 +7,4 @@ langchain_community
 langchain-aws
 streamlit
 faiss-cpu
+sagemaker
